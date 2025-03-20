@@ -10,7 +10,7 @@ BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-THRESHOLD_USD = 500000  # 提高到 50 萬美元
+THRESHOLD_USD = 500000  # 門檻設為 50 萬美元
 PRICE_CACHE = {}
 
 # 檢查環境變數是否設置
@@ -64,7 +64,7 @@ async def test_api():
     # 測試 Moralis
     try:
         headers = {"x-api-key": MORALIS_API_KEY}
-        response = requests.get("https://deep-index.moralis.io/api/v2.2/info", headers=headers)
+        response = requests.get("https://deep-index.moralis.io/api/v2.2/block/latest?chain=eth", headers=headers)
         await send_telegram_message("✅ Moralis API 測試成功" if response.status_code == 200 else f"❌ Moralis API 測試失敗：{response.status_code}")
     except Exception as e:
         await send_telegram_message(f"❌ Moralis API 測試錯誤：{e}")
