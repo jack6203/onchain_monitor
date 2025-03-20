@@ -23,6 +23,64 @@ async def update_prices():
             PRICE_CACHE["ETH"] = response.json()["ethereum"]["usd"]
         await asyncio.sleep(60)
 
+# 測試函數：檢查 API 並發送測試訊息
+async def test_api():
+    # 測試 Moralis
+    try:
+        headers = {"x-api-key": MORALIS_API_KEY}
+        response = requests.get("https://deep-index.moralis.io/api/v2/block/latest/transactions?chain=eth", headers=headers)
+        if response.status_code == 200:
+            await bot.send_message(chat_id=CHAT_ID, text="✅ Moralis API 測試成功")
+        else:
+            await bot.send_message(chat_id=CHAT_ID, text=f"❌ Moralis API 測試失敗：{response.status_code}")
+    except Exception as e:
+        await bot.send_message(chat_id=CHAT_ID, text=f"❌ Moralis API 測試錯誤：{e}")
+
+    # 測試 Bitquery
+    try:
+        url = "https://graphql.bitquery.io/"
+        query = "{ EVM(network: eth) { Blocks(limit: {count: 1}) { Hash } } }"
+        response = requests.post(url, json={"query": query}, headers={"X-API-KEY": BITQUERY_API_KEY})
+        if response.status_code == 200:
+            await bot.send_message(chat_id=CHAT_ID, text="✅ Bitquery API 測試成功")
+        else:
+            await bot.send_message(chat_id=CHAT_ID, text=f"❌ Bitquery API 測試失敗：{response.status_code}")
+    except Exception as e:
+        await bot.send_message(chat_id=CHAT_ID, text=f"❌ Bitquery API 測試錯誤：{e}")
+
+    # 測試 PublicNode
+    try:
+        async with websockets.connect("wss://ethereum.publicnode.com") as ws:
+            await ws.send(json.dumps({"id": 1, "jsonrpc": "2.0", "method": "eth_blockNumber", "params": []}))
+            response = await ws.recv()
+            if json.loads(response).get("result"):
+                await bot.send_message(chat_id=CHAT_ID, text="✅ PublicNode API 測試成功")
+            else:
+                await bot.send_message(chat_id=CHAT_ID, text="❌ PublicNode API 測試失敗")
+    except Exception as e:
+        await bot.send_message(chat_id=CHAT_ID, text=f"❌ PublicNode API 測試錯誤：{e}")
+
+    # 測試 Binance API
+    try:
+        response = requests.get("https://api.binance.com/api/v3/trades?symbol=BTCUSDT&limit=1")
+        if response.status_code == 200:
+            await bot.send_message(chat_id=CHAT_ID, text="✅ Binance API 測試成功")
+        else:
+            await bot.send_message(chat_id=CHAT_ID, text=f"❌ Binance API 測試失敗：{response.status_code}")
+    except Exception as e:
+        await bot.send_message(chat_id=CHAT_ID, text=f"❌ Binance API 測試錯誤：{e}")
+
+    # 測試 Etherscan
+    try:
+        url = f"https://api.etherscan.io/api?module=proxy&action=eth_blockNumber&apikey={ETHERSCAN_API_KEY}"
+        response = requests.get(url)
+        if response.status_code == 200 and response.json()["result"]:
+            await bot.send_message(chat_id=CHAT_ID, text="✅ Etherscan API 測試成功")
+        else:
+            await bot.send_message(chat_id=CHAT_ID, text=f"❌ Etherscan API 測試失敗：{response.status_code}")
+    except Exception as e:
+        await bot.send_message(chat_id=CHAT_ID, text=f"❌ Etherscan API 測試錯誤：{e}")
+
 # DEX 監控 - Moralis
 async def monitor_dex_moralis():
     headers = {"x-api-key": MORALIS_API_KEY}
@@ -41,9 +99,9 @@ async def monitor_dex_moralis():
                         )
         except Exception as e:
             print(f"Moralis 錯誤：{e}")
-        await asyncio.sleep(5)  # 每 5 秒檢查
+        await asyncio.sleep(5)
 
-# DEX 監控 - Bitquery（Uniswap 示例）
+# DEX 監控 - Bitquery
 async def monitor_dex_bitquery():
     url = "https://graphql.bitquery.io/"
     query = """
@@ -54,10 +112,7 @@ async def monitor_dex_bitquery():
           limit: {count: 10}
         ) {
           Transaction { Hash }
-          Trade {
-            Buy { Amount AmountInUSD Currency { Symbol } }
-            Sell { Currency { Symbol } }
-          }
+          Trade { Buy { Amount AmountInUSD Currency { Symbol } } }
         }
       }
     }
@@ -77,7 +132,7 @@ async def monitor_dex_bitquery():
                     )
         except Exception as e:
             print(f"Bitquery 錯誤：{e}")
-        await asyncio.sleep(60)  # 每分鐘檢查
+        await asyncio.sleep(60)
 
 # DEX 監控 - PublicNode
 async def monitor_dex_publicnode():
@@ -91,7 +146,7 @@ async def monitor_dex_publicnode():
                     "method": "eth_subscribe",
                     "params": ["newHeads"]
                 }))
-                await ws.recv()  # 訂閱確認
+                await ws.recv()
                 while True:
                     message = await ws.recv()
                     block_data = json.loads(message)
@@ -117,9 +172,9 @@ async def monitor_dex_publicnode():
                                 )
         except Exception as e:
             print(f"PublicNode 錯誤：{e}")
-            await asyncio.sleep(5)  # 重連
+            await asyncio.sleep(5)
 
-# CEX 監控 - Binance API（內部交易）
+# CEX 監控 - Binance API
 async def monitor_cex_binance():
     url = "https://api.binance.com/api/v3/trades?symbol=BTCUSDT&limit=100"
     while True:
@@ -137,17 +192,17 @@ async def monitor_cex_binance():
                         )
         except Exception as e:
             print(f"Binance 錯誤：{e}")
-        await asyncio.sleep(10)  # 每 10 秒檢查
+        await asyncio.sleep(10)
 
-# CEX 監控 - Etherscan（鏈上活動）
+# CEX 監控 - Etherscan
 async def monitor_cex_etherscan():
-    address = "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be"  # Binance 熱錢包示例
+    address = "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be"  # Binance 熱錢包
     url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&sort=desc&apikey={ETHERSCAN_API_KEY}"
     while True:
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                for tx in response.json()["result"][:10]:  # 最近 10 筆
+                for tx in response.json()["result"][:10]:
                     value_wei = int(tx["value"])
                     value_eth = value_wei / 10**18
                     usd_value = value_eth * PRICE_CACHE.get("ETH", 0)
@@ -158,9 +213,13 @@ async def monitor_cex_etherscan():
                         )
         except Exception as e:
             print(f"Etherscan 錯誤：{e}")
-        await asyncio.sleep(60)  # 每分鐘檢查
+        await asyncio.sleep(60)
 
+# 主函數：先測試再監控
 async def main():
+    await bot.send_message(chat_id=CHAT_ID, text="🚀 程式啟動，正在測試所有 API...")
+    await test_api()  # 執行測試
+    await bot.send_message(chat_id=CHAT_ID, text="✅ 測試完成，開始正常監控")
     await asyncio.gather(
         update_prices(),
         monitor_dex_moralis(),
