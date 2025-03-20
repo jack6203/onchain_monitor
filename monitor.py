@@ -10,7 +10,7 @@ BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-THRESHOLD_USD = 100000
+THRESHOLD_USD = 500000  # 提高到 50 萬美元
 PRICE_CACHE = {}
 
 # 檢查環境變數是否設置
@@ -28,16 +28,25 @@ for var_name, var_value in required_vars.items():
 # Telegram POST 發送函數
 async def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message
-    }
+    payload = {"chat_id": CHAT_ID, "text": message}
     try:
         response = requests.post(url, json=payload)
         if response.status_code != 200:
             print(f"Telegram 發送失敗：{response.text}")
     except Exception as e:
         print(f"Telegram 發送錯誤：{e}")
+
+# 獲取地址餘額（Etherscan）
+def get_address_balance(address):
+    url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            balance_wei = int(response.json()["result"])
+            return balance_wei / 10**18
+        return None
+    except Exception:
+        return None
 
 # 更新價格（CoinGecko）
 async def update_prices():
@@ -55,7 +64,7 @@ async def test_api():
     # 測試 Moralis
     try:
         headers = {"x-api-key": MORALIS_API_KEY}
-        response = requests.get("https://deep-index.moralis.io/api/v2/block/latest/transactions?chain=eth", headers=headers)
+        response = requests.get("https://deep-index.moralis.io/api/v2.2/block/latest?chain=eth", headers=headers)
         await send_telegram_message("✅ Moralis API 測試成功" if response.status_code == 200 else f"❌ Moralis API 測試失敗：{response.status_code}")
     except Exception as e:
         await send_telegram_message(f"❌ Moralis API 測試錯誤：{e}")
@@ -81,7 +90,7 @@ async def test_api():
     # 測試 Binance API
     try:
         response = requests.get("https://api.binance.com/api/v3/trades?symbol=BTCUSDT&limit=1")
-        await send_telegram_message("✅ Binance API 測試成功" if response.status_code == 200 else f"❌ Binance API 測試失敗：{response.status_code}")
+        await send_telegram_message("✅ Binance API 測試成功" if response.status_code == 200 else f"❌ Binance API 測試失敗：{response.status_code}（可能是地域限制）")
     except Exception as e:
         await send_telegram_message(f"❌ Binance API 測試錯誤：{e}")
 
@@ -96,18 +105,31 @@ async def test_api():
 # DEX 監控 - Moralis
 async def monitor_dex_moralis():
     headers = {"x-api-key": MORALIS_API_KEY}
-    url = "https://deep-index.moralis.io/api/v2/block/latest/transactions?chain=eth"
     while True:
         try:
-            response = requests.get(url, headers=headers)
+            # 獲取最新區塊號
+            response = requests.get("https://deep-index.moralis.io/api/v2.2/block/latest?chain=eth", headers=headers)
             if response.status_code == 200:
-                for tx in response.json()["result"]:
-                    value_eth = int(tx["value"]) / 10**18
-                    usd_value = value_eth * PRICE_CACHE.get("ETH", 0)
-                    if usd_value > THRESHOLD_USD:
-                        await send_telegram_message(f"🚨 DEX 大額交易 (Moralis)：{value_eth} ETH (${usd_value})\n哈希：{tx['hash']}")
+                block_number = response.json()["number"]
+                # 獲取區塊交易
+                tx_response = requests.get(f"https://deep-index.moralis.io/api/v2.2/block/{block_number}/transactions?chain=eth", headers=headers)
+                if tx_response.status_code == 200:
+                    for tx in tx_response.json()["result"]:
+                        value_eth = int(tx["value"]) / 10**18
+                        usd_value = value_eth * PRICE_CACHE.get("ETH", 0)
+                        if usd_value > THRESHOLD_USD:
+                            from_addr = tx["from_address"]
+                            to_addr = tx["to_address"]
+                            from_balance = get_address_balance(from_addr) or "無法獲取"
+                            to_balance = get_address_balance(to_addr) or "無法獲取"
+                            await send_telegram_message(
+                                f"🚨 DEX 大額交易 (Moralis)：{value_eth} ETH (${usd_value})\n"
+                                f"從：{from_addr} (餘額：{from_balance} ETH)\n"
+                                f"到：{to_addr} (餘額：{to_balance} ETH)\n"
+                                f"哈希：{tx['hash']}"
+                            )
         except Exception as e:
-            print(f"Moralis 錯誤：{e}")
+            print(f"Moralis 錯誤：{冲突}")
         await asyncio.sleep(5)
 
 # DEX 監控 - Bitquery
@@ -117,11 +139,16 @@ async def monitor_dex_bitquery():
     subscription {
       EVM(network: eth) {
         DEXTrades(
-          where: {Trade: {Buy: {AmountInUSD: {gt: 100000}}}}
+          where: {Trade: {Buy: {AmountInUSD: {gt: 500000}}}}
           limit: {count: 10}
         ) {
           Transaction { Hash }
-          Trade { Buy { Amount AmountInUSD Currency { Symbol } } }
+          Trade {
+            Buyer { Address }
+            Seller { Address }
+            Buy { Amount AmountInUSD Currency { Symbol } }
+            Sell { Amount Currency { Symbol } }
+          }
         }
       }
     }
@@ -135,7 +162,16 @@ async def monitor_dex_bitquery():
                 for trade in trades:
                     amount_usd = float(trade["Trade"]["Buy"]["AmountInUSD"])
                     tx_hash = trade["Transaction"]["Hash"]
-                    await send_telegram_message(f"🚨 DEX 大額交易 (Bitquery)：${amount_usd}\n哈希：{tx_hash}")
+                    buyer_addr = trade["Trade"]["Buyer"]["Address"]
+                    seller_addr = trade["Trade"]["Seller"]["Address"]
+                    buyer_balance = get_address_balance(buyer_addr) or "無法獲取"
+                    seller_balance = get_address_balance(seller_addr) or "無法獲取"
+                    await send_telegram_message(
+                        f"🚨 DEX 大額交易 (Bitquery)：${amount_usd}\n"
+                        f"買家：{buyer_addr} (餘額：{buyer_balance} ETH)\n"
+                        f"賣家：{seller_addr} (餘額：{seller_balance} ETH)\n"
+                        f"哈希：{tx_hash}"
+                    )
         except Exception as e:
             print(f"Bitquery 錯誤：{e}")
         await asyncio.sleep(60)
@@ -167,7 +203,16 @@ async def monitor_dex_publicnode():
                             value_eth = value_wei / 10**18
                             usd_value = value_eth * PRICE_CACHE.get("ETH", 0)
                             if usd_value > THRESHOLD_USD:
-                                await send_telegram_message(f"🚨 DEX/鏈上大額轉帳 (PublicNode)：{value_eth} ETH (${usd_value})\n哈希：{tx['hash']}")
+                                from_addr = tx["from"]
+                                to_addr = tx["to"]
+                                from_balance = get_address_balance(from_addr) or "無法獲取"
+                                to_balance = get_address_balance(to_addr) or "無法獲取"
+                                await send_telegram_message(
+                                    f"🚨 DEX/鏈上大額轉帳 (PublicNode)：{value_eth} ETH (${usd_value})\n"
+                                    f"從：{from_addr} (餘額：{from_balance} ETH)\n"
+                                    f"到：{to_addr} (餘額：{to_balance} ETH)\n"
+                                    f"哈希：{tx['hash']}"
+                                )
         except Exception as e:
             print(f"PublicNode 錯誤：{e}")
             await asyncio.sleep(5)
@@ -184,14 +229,18 @@ async def monitor_cex_binance():
                     price = float(trade["price"])
                     usd_value = qty * price
                     if usd_value > THRESHOLD_USD:
-                        await send_telegram_message(f"🚨 CEX 大額交易 (Binance)：{qty} BTC (${usd_value})\nID：{trade['id']}")
+                        await send_telegram_message(
+                            f"🚨 CEX 大額交易 (Binance)：{qty} BTC (${usd_value})\n"
+                            f"ID：{trade['id']}\n"
+                            f"（CEX 交易無公開地址）"
+                        )
         except Exception as e:
             print(f"Binance 錯誤：{e}")
         await asyncio.sleep(10)
 
 # CEX 監控 - Etherscan
 async def monitor_cex_etherscan():
-    address = "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be"
+    address = "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be"  # Binance 熱錢包
     url = f"https://api.etherscan.io/api?module=account&action=txlist&address={address}&sort=desc&apikey={ETHERSCAN_API_KEY}"
     while True:
         try:
@@ -202,7 +251,16 @@ async def monitor_cex_etherscan():
                     value_eth = value_wei / 10**18
                     usd_value = value_eth * PRICE_CACHE.get("ETH", 0)
                     if usd_value > THRESHOLD_USD:
-                        await send_telegram_message(f"🚨 CEX 鏈上活動 (Etherscan)：{value_eth} ETH (${usd_value})\n哈希：{tx['hash']}")
+                        from_addr = tx["from"]
+                        to_addr = tx["to"]
+                        from_balance = get_address_balance(from_addr) or "無法獲取"
+                        to_balance = get_address_balance(to_addr) or "無法獲取"
+                        await send_telegram_message(
+                            f"🚨 CEX 鏈上活動 (Etherscan)：{value_eth} ETH (${usd_value})\n"
+                            f"從：{from_addr} (餘額：{from_balance} ETH)\n"
+                            f"到：{to_addr} (餘額：{to_balance} ETH)\n"
+                            f"哈希：{tx['hash']}"
+                        )
         except Exception as e:
             print(f"Etherscan 錯誤：{e}")
         await asyncio.sleep(60)
