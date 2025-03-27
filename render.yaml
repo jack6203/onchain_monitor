@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: onchain-monitor
+    env: docker
+    buildCommand: docker build -t onchain-monitor .
+    startCommand: docker run -p $PORT:8000 -e PORT=$PORT onchain-monitor
+    envVars:
+      - key: MORALIS_API_KEY
+        sync: false
+      - key: BITQUERY_API_KEY
+        sync: false
+      - key: ETHERSCAN_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: CHAT_ID
+        sync: false
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
+      - key: BLOCKCHAIN_DISCORD_WEBHOOK_URL
+        sync: false 
