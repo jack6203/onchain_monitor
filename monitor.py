@@ -11,6 +11,8 @@ BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")  # Discord Webhook URL
+DISCORD_WEBHOOK_CUSTOM = os.getenv("BLOCKCHAIN_DISCORD_WEBHOOK_URL")  # 自定義Discord Webhook URL
 THRESHOLD_USD = 500000  # 門檻設為 50 萬美元
 PRICE_CACHE = {}
 
@@ -26,6 +28,25 @@ for var_name, var_value in required_vars.items():
     if not var_value:
         raise ValueError(f"環境變數 {var_name} 未設置，請在 Render 的 Environment 中配置")
 
+# 首選發送至自定義Discord Webhook URL
+async def send_discord_message(message):
+    # 優先使用自定義Webhook
+    webhook_url = DISCORD_WEBHOOK_CUSTOM or DISCORD_WEBHOOK_URL
+    
+    if not webhook_url:
+        print("環境變數 DISCORD_WEBHOOK_URL 和 BLOCKCHAIN_DISCORD_WEBHOOK_URL 均未設置")
+        return
+    
+    payload = {"content": message}
+    try:
+        response = requests.post(webhook_url, json=payload)
+        if response.status_code != 200:
+            print(f"Discord 發送失敗：{response.text}")
+        elif DISCORD_WEBHOOK_CUSTOM:
+            print(f"訊息已發送至區塊鏈專用頻道")
+    except Exception as e:
+        print(f"Discord 發送錯誤：{e}")
+
 # Telegram POST 發送函數
 async def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -34,8 +55,13 @@ async def send_telegram_message(message):
         response = requests.post(url, json=payload)
         if response.status_code != 200:
             print(f"Telegram 發送失敗：{response.text}")
+        
+        # 同時發送到Discord
+        await send_discord_message(message)
     except Exception as e:
         print(f"Telegram 發送錯誤：{e}")
+        # 嘗試通過Discord作為備用
+        await send_discord_message(message)
 
 # 獲取地址餘額（Etherscan）
 def get_address_balance(address):
@@ -61,6 +87,7 @@ async def update_prices():
 # 測試函數：檢查 API 並發送測試訊息
 async def test_api():
     await send_telegram_message("🚀 程式啟動，正在測試所有 API...")
+    await send_discord_message("🚀 區塊鏈監控服務正在啟動，測試所有 API...")
 
     # 測試 Moralis
     try:
@@ -266,6 +293,7 @@ async def monitor_cex_etherscan():
 
 # HTTP 服務器處理函數
 async def handle_request(request):
+    await send_discord_message("🔍 區塊鏈監控服務正在運行中")
     return web.Response(text="Monitor is running")
 
 # 啟動 HTTP 服務器
@@ -277,12 +305,15 @@ async def run_http_server():
     site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
     print("HTTP 服務器已啟動在端口 8000")
+    await send_discord_message("✅ 區塊鏈監控HTTP服務已啟動在端口 8000")
 
 # 主函數：啟動 HTTP 服務器並運行監控
 async def main():
     await send_telegram_message("🚀 程式啟動，正在測試所有 API...")
+    await send_discord_message("🚀 區塊鏈監控服務正在啟動...")
     await test_api()
     await send_telegram_message("✅ 測試完成，開始正常監控")
+    await send_discord_message("✅ API測試完成，開始正常監控")
     await asyncio.gather(
         run_http_server(),  # 啟動 HTTP 服務器
         update_prices(),
