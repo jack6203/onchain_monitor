@@ -292,7 +292,6 @@ async def monitor_cex_etherscan():
 
 # HTTP 服務器處理函數
 async def handle_request(request):
-    await send_discord_message("🔍 區塊鏈監控服務正在運行中")
     return web.Response(text="Monitor is running")
 
 # 啟動 HTTP 服務器
