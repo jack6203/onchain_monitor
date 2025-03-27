@@ -56,7 +56,7 @@ async def send_telegram_message(message):
         if response.status_code != 200:
             print(f"Telegram 發送失敗：{response.text}")
         
-        # 同時發送到Discord
+        # 同時發送到Discord，確保監控訊息在兩個平台同步
         await send_discord_message(message)
     except Exception as e:
         print(f"Telegram 發送錯誤：{e}")
@@ -87,7 +87,6 @@ async def update_prices():
 # 測試函數：檢查 API 並發送測試訊息
 async def test_api():
     await send_telegram_message("🚀 程式啟動，正在測試所有 API...")
-    await send_discord_message("🚀 區塊鏈監控服務正在啟動，測試所有 API...")
 
     # 測試 Moralis
     try:
@@ -305,15 +304,13 @@ async def run_http_server():
     site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
     print("HTTP 服務器已啟動在端口 8000")
-    await send_discord_message("✅ 區塊鏈監控HTTP服務已啟動在端口 8000")
+    await send_telegram_message("✅ 區塊鏈監控HTTP服務已啟動在端口 8000")
 
 # 主函數：啟動 HTTP 服務器並運行監控
 async def main():
     await send_telegram_message("🚀 程式啟動，正在測試所有 API...")
-    await send_discord_message("🚀 區塊鏈監控服務正在啟動...")
     await test_api()
     await send_telegram_message("✅ 測試完成，開始正常監控")
-    await send_discord_message("✅ API測試完成，開始正常監控")
     await asyncio.gather(
         run_http_server(),  # 啟動 HTTP 服務器
         update_prices(),
