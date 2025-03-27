@@ -43,6 +43,31 @@ async def send_discord_message(message):
     except Exception as e:
         print(f"Discord 發送錯誤：{e}")
 
+# 獲取地址餘額（Etherscan）
+def get_address_balance(address):
+    url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            balance_wei = int(response.json()["result"])
+            return balance_wei / 10**18
+        return None
+    except Exception:
+        return None
+
+# 更新價格（CoinGecko）
+async def update_prices():
+    while True:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+        response = requests.get(url)
+        if response.status_code == 200:
+            PRICE_CACHE["ETH"] = response.json()["ethereum"]["usd"]
+        await asyncio.sleep(60)
+
+# HTTP 服務器處理函數
+async def handle_request(request):
+    return web.Response(text="Monitor is running")
+
 # 測試函數：檢查 API 並發送測試訊息
 async def test_api():
     await send_discord_message("🚀 程式啟動，正在測試所有 API...")
