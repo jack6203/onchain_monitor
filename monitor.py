@@ -9,8 +9,6 @@ from aiohttp import web
 MORALIS_API_KEY = os.getenv("MORALIS_API_KEY")
 BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")  # Discord Webhook URL
 DISCORD_WEBHOOK_CUSTOM = os.getenv("BLOCKCHAIN_DISCORD_WEBHOOK_URL")  # 自定義Discord Webhook URL
 THRESHOLD_USD = 500000  # 門檻設為 50 萬美元
@@ -20,15 +18,13 @@ PRICE_CACHE = {}
 required_vars = {
     "MORALIS_API_KEY": MORALIS_API_KEY,
     "BITQUERY_API_KEY": BITQUERY_API_KEY,
-    "ETHERSCAN_API_KEY": ETHERSCAN_API_KEY,
-    "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
-    "CHAT_ID": CHAT_ID
+    "ETHERSCAN_API_KEY": ETHERSCAN_API_KEY
 }
 for var_name, var_value in required_vars.items():
     if not var_value:
         raise ValueError(f"環境變數 {var_name} 未設置，請在 Render 的 Environment 中配置")
 
-# 首選發送至自定義Discord Webhook URL
+# 發送至Discord Webhook
 async def send_discord_message(message):
     # 優先使用自定義Webhook
     webhook_url = DISCORD_WEBHOOK_CUSTOM or DISCORD_WEBHOOK_URL
@@ -47,87 +43,50 @@ async def send_discord_message(message):
     except Exception as e:
         print(f"Discord 發送錯誤：{e}")
 
-# Telegram POST 發送函數
-async def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
-    try:
-        response = requests.post(url, json=payload)
-        if response.status_code != 200:
-            print(f"Telegram 發送失敗：{response.text}")
-        
-        # 同時發送到Discord，確保監控訊息在兩個平台同步
-        await send_discord_message(message)
-    except Exception as e:
-        print(f"Telegram 發送錯誤：{e}")
-        # 嘗試通過Discord作為備用
-        await send_discord_message(message)
-
-# 獲取地址餘額（Etherscan）
-def get_address_balance(address):
-    url = f"https://api.etherscan.io/api?module=account&action=balance&address={address}&tag=latest&apikey={ETHERSCAN_API_KEY}"
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            balance_wei = int(response.json()["result"])
-            return balance_wei / 10**18
-        return None
-    except Exception:
-        return None
-
-# 更新價格（CoinGecko）
-async def update_prices():
-    while True:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
-        response = requests.get(url)
-        if response.status_code == 200:
-            PRICE_CACHE["ETH"] = response.json()["ethereum"]["usd"]
-        await asyncio.sleep(60)
-
 # 測試函數：檢查 API 並發送測試訊息
 async def test_api():
-    await send_telegram_message("🚀 程式啟動，正在測試所有 API...")
+    await send_discord_message("🚀 程式啟動，正在測試所有 API...")
 
     # 測試 Moralis
     try:
         headers = {"x-api-key": MORALIS_API_KEY}
         response = requests.get("https://deep-index.moralis.io/api/v2.2/block/latest?chain=eth", headers=headers)
-        await send_telegram_message("✅ Moralis API 測試成功" if response.status_code == 200 else f"❌ Moralis API 測試失敗：{response.status_code}")
+        await send_discord_message("✅ Moralis API 測試成功" if response.status_code == 200 else f"❌ Moralis API 測試失敗：{response.status_code}")
     except Exception as e:
-        await send_telegram_message(f"❌ Moralis API 測試錯誤：{e}")
+        await send_discord_message(f"❌ Moralis API 測試錯誤：{e}")
 
     # 測試 Bitquery
     try:
         url = "https://graphql.bitquery.io/"
         query = "{ EVM(network: eth) { Blocks(limit: {count: 1}) { Hash } } }"
         response = requests.post(url, json={"query": query}, headers={"X-API-KEY": BITQUERY_API_KEY})
-        await send_telegram_message("✅ Bitquery API 測試成功" if response.status_code == 200 else f"❌ Bitquery API 測試失敗：{response.status_code}")
+        await send_discord_message("✅ Bitquery API 測試成功" if response.status_code == 200 else f"❌ Bitquery API 測試失敗：{response.status_code}")
     except Exception as e:
-        await send_telegram_message(f"❌ Bitquery API 測試錯誤：{e}")
+        await send_discord_message(f"❌ Bitquery API 測試錯誤：{e}")
 
     # 測試 PublicNode
     try:
         async with websockets.connect("wss://ethereum.publicnode.com") as ws:
             await ws.send(json.dumps({"id": 1, "jsonrpc": "2.0", "method": "eth_blockNumber", "params": []}))
             response = await ws.recv()
-            await send_telegram_message("✅ PublicNode API 測試成功" if json.loads(response).get("result") else "❌ PublicNode API 測試失敗")
+            await send_discord_message("✅ PublicNode API 測試成功" if json.loads(response).get("result") else "❌ PublicNode API 測試失敗")
     except Exception as e:
-        await send_telegram_message(f"❌ PublicNode API 測試錯誤：{e}")
+        await send_discord_message(f"❌ PublicNode API 測試錯誤：{e}")
 
     # 測試 Binance API
     try:
         response = requests.get("https://data-api.binance.vision/api/v3/trades?symbol=BTCUSDT&limit=1")
-        await send_telegram_message("✅ Binance API 測試成功" if response.status_code == 200 else f"❌ Binance API 測試失敗：{response.status_code}（可能是地域限制）")
+        await send_discord_message("✅ Binance API 測試成功" if response.status_code == 200 else f"❌ Binance API 測試失敗：{response.status_code}（可能是地域限制）")
     except Exception as e:
-        await send_telegram_message(f"❌ Binance API 測試錯誤：{e}")
+        await send_discord_message(f"❌ Binance API 測試錯誤：{e}")
 
     # 測試 Etherscan
     try:
         url = f"https://api.etherscan.io/api?module=proxy&action=eth_blockNumber&apikey={ETHERSCAN_API_KEY}"
         response = requests.get(url)
-        await send_telegram_message("✅ Etherscan API 測試成功" if response.status_code == 200 and response.json()["result"] else f"❌ Etherscan API 測試失敗：{response.status_code}")
+        await send_discord_message("✅ Etherscan API 測試成功" if response.status_code == 200 and response.json()["result"] else f"❌ Etherscan API 測試失敗：{response.status_code}")
     except Exception as e:
-        await send_telegram_message(f"❌ Etherscan API 測試錯誤：{e}")
+        await send_discord_message(f"❌ Etherscan API 測試錯誤：{e}")
 
 # DEX 監控 - Moralis
 async def monitor_dex_moralis():
@@ -147,7 +106,7 @@ async def monitor_dex_moralis():
                             to_addr = tx["to_address"]
                             from_balance = get_address_balance(from_addr) or "無法獲取"
                             to_balance = get_address_balance(to_addr) or "無法獲取"
-                            await send_telegram_message(
+                            await send_discord_message(
                                 f"🚨 DEX 大額交易 (Moralis)：{value_eth} ETH (${usd_value})\n"
                                 f"從：{from_addr} (餘額：{from_balance} ETH)\n"
                                 f"到：{to_addr} (餘額：{to_balance} ETH)\n"
@@ -191,7 +150,7 @@ async def monitor_dex_bitquery():
                     seller_addr = trade["Trade"]["Seller"]["Address"]
                     buyer_balance = get_address_balance(buyer_addr) or "無法獲取"
                     seller_balance = get_address_balance(seller_addr) or "無法獲取"
-                    await send_telegram_message(
+                    await send_discord_message(
                         f"🚨 DEX 大額交易 (Bitquery)：${amount_usd}\n"
                         f"買家：{buyer_addr} (餘額：{buyer_balance} ETH)\n"
                         f"賣家：{seller_addr} (餘額：{seller_balance} ETH)\n"
@@ -232,7 +191,7 @@ async def monitor_dex_publicnode():
                                 to_addr = tx["to"]
                                 from_balance = get_address_balance(from_addr) or "無法獲取"
                                 to_balance = get_address_balance(to_addr) or "無法獲取"
-                                await send_telegram_message(
+                                await send_discord_message(
                                     f"🚨 DEX/鏈上大額轉帳 (PublicNode)：{value_eth} ETH (${usd_value})\n"
                                     f"從：{from_addr} (餘額：{from_balance} ETH)\n"
                                     f"到：{to_addr} (餘額：{to_balance} ETH)\n"
@@ -254,7 +213,7 @@ async def monitor_cex_binance():
                     price = float(trade["price"])
                     usd_value = qty * price
                     if usd_value > THRESHOLD_USD:
-                        await send_telegram_message(
+                        await send_discord_message(
                             f"🚨 CEX 大額交易 (Binance)：{qty} BTC (${usd_value})\n"
                             f"ID：{trade['id']}\n"
                             f"（CEX 交易無公開地址）"
@@ -280,7 +239,7 @@ async def monitor_cex_etherscan():
                         to_addr = tx["to"]
                         from_balance = get_address_balance(from_addr) or "無法獲取"
                         to_balance = get_address_balance(to_addr) or "無法獲取"
-                        await send_telegram_message(
+                        await send_discord_message(
                             f"🚨 CEX 鏈上活動 (Etherscan)：{value_eth} ETH (${usd_value})\n"
                             f"從：{from_addr} (餘額：{from_balance} ETH)\n"
                             f"到：{to_addr} (餘額：{to_balance} ETH)\n"
@@ -289,10 +248,6 @@ async def monitor_cex_etherscan():
         except Exception as e:
             print(f"Etherscan 錯誤：{e}")
         await asyncio.sleep(60)
-
-# HTTP 服務器處理函數
-async def handle_request(request):
-    return web.Response(text="Monitor is running")
 
 # 啟動 HTTP 服務器
 async def run_http_server():
@@ -303,13 +258,13 @@ async def run_http_server():
     site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
     print("HTTP 服務器已啟動在端口 8000")
-    await send_telegram_message("✅ 區塊鏈監控HTTP服務已啟動在端口 8000")
+    await send_discord_message("✅ 區塊鏈監控HTTP服務已啟動在端口 8000")
 
 # 主函數：啟動 HTTP 服務器並運行監控
 async def main():
-    await send_telegram_message("🚀 程式啟動，正在測試所有 API...")
+    await send_discord_message("🚀 程式啟動，正在測試所有 API...")
     await test_api()
-    await send_telegram_message("✅ 測試完成，開始正常監控")
+    await send_discord_message("✅ 測試完成，開始正常監控")
     await asyncio.gather(
         run_http_server(),  # 啟動 HTTP 服務器
         update_prices(),
